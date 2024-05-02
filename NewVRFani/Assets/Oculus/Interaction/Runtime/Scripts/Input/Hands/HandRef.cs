@@ -1,25 +1,18 @@
-/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
- *
- * Licensed under the Oculus SDK License Agreement (the "License");
- * you may not use the Oculus SDK except in compliance with the License,
- * which is provided at the time of installation or download, or which
- * otherwise accompanies this software in either electronic or hard copy form.
- *
- * You may obtain a copy of the License at
- *
- * https://developer.oculus.com/licenses/oculussdk/
- *
- * Unless required by applicable law or agreed to in writing, the Oculus SDK
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+/************************************************************************************
+Copyright : Copyright (c) Facebook Technologies, LLC and its affiliates. All rights reserved.
+
+Your use of this SDK or tool is subject to the Oculus SDK License Agreement, available at
+https://developer.oculus.com/licenses/oculussdk/
+
+Unless required by applicable law or agreed to in writing, the Utilities SDK distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+ANY KIND, either express or implied. See the License for the specific language governing
+permissions and limitations under the License.
+************************************************************************************/
 
 using System;
 using UnityEngine;
+using UnityEngine.Assertions;
 
 namespace Oculus.Interaction.Input
 {
@@ -30,7 +23,7 @@ namespace Oculus.Interaction.Input
     public class HandRef : MonoBehaviour, IHand, IActiveState
     {
         [SerializeField, Interface(typeof(IHand))]
-        private UnityEngine.Object _hand;
+        private MonoBehaviour _hand;
 
         public IHand Hand { get; private set; }
 
@@ -48,6 +41,9 @@ namespace Oculus.Interaction.Input
 
         public bool IsTrackedDataValid => Hand.IsTrackedDataValid;
 
+        public bool IsCenterEyePoseValid => Hand.IsCenterEyePoseValid;
+
+        public Transform TrackingToWorldSpace => Hand.TrackingToWorldSpace;
         public int CurrentDataVersion => Hand.CurrentDataVersion;
 
         public event Action WhenHandUpdated
@@ -65,7 +61,7 @@ namespace Oculus.Interaction.Input
 
         protected virtual void Start()
         {
-            this.AssertField(Hand, nameof(Hand));
+            Assert.IsNotNull(Hand);
         }
 
         public bool GetFingerIsPinching(HandFinger finger)
@@ -128,6 +124,16 @@ namespace Oculus.Interaction.Input
             return Hand.GetRootPose(out pose);
         }
 
+        public bool GetCenterEyePose(out Pose pose)
+        {
+            return Hand.GetCenterEyePose(out pose);
+        }
+
+        public bool GetHandAspect<TComponent>(out TComponent foundComponent) where TComponent : class
+        {
+            return Hand.GetHandAspect(out foundComponent);
+        }
+
         #region Inject
         public void InjectAllHandRef(IHand hand)
         {
@@ -136,7 +142,7 @@ namespace Oculus.Interaction.Input
 
         public void InjectHand(IHand hand)
         {
-            _hand = hand as UnityEngine.Object;
+            _hand = hand as MonoBehaviour;
             Hand = hand;
         }
         #endregion

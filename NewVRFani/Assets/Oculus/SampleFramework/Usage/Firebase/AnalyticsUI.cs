@@ -21,14 +21,9 @@ public class AnalyticsUI : MonoBehaviour
 
     RectTransform textFieldEventName;
 
-    List<(RectTransform, RectTransform)>
-        intParams = new List<(RectTransform, RectTransform)>(); //, FltParms, StrParams;
-
-    List<(RectTransform, RectTransform)>
-        fltParams = new List<(RectTransform, RectTransform)>(); //, FltParms, StrParams;
-
-    List<(RectTransform, RectTransform)>
-        strParams = new List<(RectTransform, RectTransform)>(); //, FltParms, StrParams;
+    List<(RectTransform, RectTransform)> intParams = new List<(RectTransform, RectTransform)>();//, FltParms, StrParams;
+    List<(RectTransform, RectTransform)> fltParams = new List<(RectTransform, RectTransform)>();//, FltParms, StrParams;
+    List<(RectTransform, RectTransform)> strParams = new List<(RectTransform, RectTransform)>();//, FltParms, StrParams;
 
     // Start is called before the first frame update
     void Start()
@@ -36,7 +31,7 @@ public class AnalyticsUI : MonoBehaviour
         DebugUIBuilder ui = DebugUIBuilder.instance;
         ui.AddButton("ResetAnalyticsData", ResetAnalyticsData, target);
         ui.AddButton("SetAnalyticsCollectionEnabled", SetAnalyticsCollectionEnabled, target);
-        ui.AddToggle("CollectionEnabled", delegate(Toggle t) { analyticsCollectionEnabled = t.enabled; },
+        ui.AddToggle("CollectionEnabled", delegate (Toggle t) { analyticsCollectionEnabled = t.enabled; },
             analyticsCollectionEnabled, target);
 
         //ui.AddButton("SetDefaultEventParameters", SetDefaultEventParameters, target);
@@ -65,10 +60,8 @@ public class AnalyticsUI : MonoBehaviour
     void Clear()
     {
         DebugUIBuilder ui = DebugUIBuilder.instance;
-        var field = typeof(DebugUIBuilder).GetField("insertedElements",
-            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-        var relayout = typeof(DebugUIBuilder).GetMethod("Relayout",
-            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var field = typeof(DebugUIBuilder).GetField("insertedElements", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var relayout = typeof(DebugUIBuilder).GetMethod("Relayout", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
         List<RectTransform> elements = ((List<RectTransform>[])field.GetValue(ui))[3];
         foreach ((RectTransform a, RectTransform b) in intParams)
         {
@@ -77,7 +70,6 @@ public class AnalyticsUI : MonoBehaviour
             a.SetParent(null);
             b.SetParent(null);
         }
-
         foreach ((RectTransform a, RectTransform b) in fltParams)
         {
             elements.Remove(a);
@@ -85,7 +77,6 @@ public class AnalyticsUI : MonoBehaviour
             a.SetParent(null);
             b.SetParent(null);
         }
-
         foreach ((RectTransform a, RectTransform b) in strParams)
         {
             elements.Remove(a);
@@ -93,7 +84,6 @@ public class AnalyticsUI : MonoBehaviour
             a.SetParent(null);
             b.SetParent(null);
         }
-
         relayout.Invoke(ui, new object[] { });
     }
 
@@ -128,12 +118,11 @@ public class AnalyticsUI : MonoBehaviour
         {
             string name = a.GetComponentInChildren<Text>().text;
             int value;
-            if (int.TryParse(b.GetComponentInChildren<Text>().text, out value))
+            if(int.TryParse(b.GetComponentInChildren<Text>().text, out value))
             {
                 parameters.Add(new Parameter(name, value));
             }
         }
-
         foreach ((RectTransform a, RectTransform b) in fltParams)
         {
             string name = a.GetComponentInChildren<Text>().text;
@@ -143,14 +132,12 @@ public class AnalyticsUI : MonoBehaviour
                 parameters.Add(new Parameter(name, value));
             }
         }
-
         foreach ((RectTransform a, RectTransform b) in fltParams)
         {
             string name = a.GetComponentInChildren<Text>().text;
             string value = b.GetComponentInChildren<Text>().text;
             parameters.Add(new Parameter(name, value));
         }
-
         return parameters;
     }
 
@@ -160,6 +147,7 @@ public class AnalyticsUI : MonoBehaviour
         List<Parameter> parameters = GetParameterList();
         string eventName = textFieldEventName.GetComponentInChildren<Text>().text;
         FirebaseAnalytics.LogEvent(eventName, parameters.ToArray());
+
     }
 
     void ResetAnalyticsData()
@@ -177,7 +165,7 @@ public class AnalyticsUI : MonoBehaviour
     void SetSessionTimeoutDuration()
     {
         long ms;
-        if (long.TryParse(textFieldSessionTimeoutDuration.GetComponentInChildren<Text>().text, out ms))
+        if( long.TryParse(textFieldSessionTimeoutDuration.GetComponentInChildren<Text>().text, out ms) )
         {
             Debug.Log(string.Format("SetSessionTimeoutDuration({0})", ms));
             FirebaseAnalytics.SetSessionTimeoutDuration(System.TimeSpan.FromMilliseconds(ms));
@@ -197,6 +185,5 @@ public class AnalyticsUI : MonoBehaviour
         string property = textFieldProperty.GetComponentInChildren<Text>().text;
         FirebaseAnalytics.SetUserProperty(name, property);
     }
-
 #endif
 }

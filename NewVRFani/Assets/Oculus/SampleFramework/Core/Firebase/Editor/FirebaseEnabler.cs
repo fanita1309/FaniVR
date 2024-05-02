@@ -8,8 +8,7 @@ public class FirebaseEnabler
     public static void EnableFirebaseSample()
     {
         var defineString = PlayerSettings.GetScriptingDefineSymbolsForGroup(BuildTargetGroup.Android);
-        PlayerSettings.SetScriptingDefineSymbolsForGroup(BuildTargetGroup.Android,
-            $"{defineString};{FirebaseBuildDefinition}");
+        PlayerSettings.SetScriptingDefineSymbolsForGroup(BuildTargetGroup.Android, $"{defineString};{FirebaseBuildDefinition}");
     }
 
     [MenuItem("Oculus/Samples/Firebase/Disable Firebase Sample")]

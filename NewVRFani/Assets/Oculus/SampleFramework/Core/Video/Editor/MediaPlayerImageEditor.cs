@@ -1,5 +1,8 @@
-// (c) Meta Platforms, Inc. and affiliates. Confidential and proprietary.
+/************************************************************************************
 
+Copyright (c) Facebook Technologies, LLC and its affiliates. All rights reserved.  
+
+************************************************************************************/
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -9,6 +12,7 @@ using UnityEditor;
 [CustomEditor(typeof(MediaPlayerImage), true)]
 public class MediaPlayerImageEditor : ImageEditor
 {
+
     SerializedProperty m_ButtonType;
 
     protected override void OnEnable()

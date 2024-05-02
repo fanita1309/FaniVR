@@ -1,43 +1,38 @@
-/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
- *
- * Licensed under the Oculus SDK License Agreement (the "License");
- * you may not use the Oculus SDK except in compliance with the License,
- * which is provided at the time of installation or download, or which
- * otherwise accompanies this software in either electronic or hard copy form.
- *
- * You may obtain a copy of the License at
- *
- * https://developer.oculus.com/licenses/oculussdk/
- *
- * Unless required by applicable law or agreed to in writing, the Oculus SDK
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+/************************************************************************************
+Copyright : Copyright (c) Facebook Technologies, LLC and its affiliates. All rights reserved.
+
+Your use of this SDK or tool is subject to the Oculus SDK License Agreement, available at
+https://developer.oculus.com/licenses/oculussdk/
+
+Unless required by applicable law or agreed to in writing, the Utilities SDK distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+ANY KIND, either express or implied. See the License for the specific language governing
+permissions and limitations under the License.
+************************************************************************************/
 
 using Oculus.Interaction.Grab;
 using Oculus.Interaction.GrabAPI;
 using Oculus.Interaction.Input;
 using Oculus.Interaction.Throw;
-using System;
+using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Assertions;
 
-namespace Oculus.Interaction.HandGrab
+namespace Oculus.Interaction.HandPosing
 {
+    using SnapAddress = SnapAddress<HandGrabInteractable>;
+
     /// <summary>
     /// The HandGrabInteractor allows grabbing objects while having the hands snap to them
     /// adopting a previously authored HandPose.
     /// There are different snapping techniques available, and when None is selected it will
     /// behave as a normal GrabInteractor.
     /// </summary>
-    public class HandGrabInteractor : PointerInteractor<HandGrabInteractor, HandGrabInteractable>,
-        IHandGrabInteractor, IRigidbodyRef
+    public class HandGrabInteractor : Interactor<HandGrabInteractor, HandGrabInteractable>
+        , ISnapper, IRigidbodyRef, IHandGrabInteractor
     {
         [SerializeField, Interface(typeof(IHand))]
-        private UnityEngine.Object _hand;
+        private MonoBehaviour _hand;
         public IHand Hand { get; private set; }
 
         [SerializeField]
@@ -49,74 +44,50 @@ namespace Oculus.Interaction.HandGrab
         [SerializeField]
         private GrabTypeFlags _supportedGrabTypes = GrabTypeFlags.All;
 
-        /// <summary>
-        /// When enabled, nearby interactables can become candidates even if the finger
-        /// strength is 0.
-        /// </summary>
         [SerializeField]
-        [Tooltip("When enabled, nearby interactables can become candidates even if the" +
-            "finger strength is 0")]
-        private bool _hoverOnZeroStrength = false;
-        public bool HoverOnZeroStrength
-        {
-            get
-            {
-                return _hoverOnZeroStrength;
-            }
-            set
-            {
-                _hoverOnZeroStrength = value;
-            }
-        }
-
-        [SerializeField]
-        private Transform _grabOrigin;
-
-        [SerializeField, Optional]
-        private Transform _gripPoint;
-        [SerializeField, Optional]
-        private SphereCollider _gripCollider;
+        private HandWristOffset _gripPoint;
         [SerializeField, Optional]
         private Transform _pinchPoint;
-        [SerializeField, Optional]
-        private SphereCollider _pinchCollider;
 
         [SerializeField, Interface(typeof(IVelocityCalculator)), Optional]
-        private UnityEngine.Object _velocityCalculator;
+        private MonoBehaviour _velocityCalculator;
         public IVelocityCalculator VelocityCalculator { get; set; }
 
-        private bool _handGrabShouldSelect = false;
-        private bool _handGrabShouldUnselect = false;
+        private SnapAddress _currentSnap = new SnapAddress();
+        private HandPose _cachedBestHandPose = new HandPose();
+        private Pose _cachedBestSnapPoint = new Pose();
 
-        private HandGrabResult _cachedResult = new HandGrabResult();
-        private HandGrabInteractable _selectedInteractableOverride;
+        private Tween _tween;
+
+        private Pose _wristToSnapOffset;
+        private Pose _snapOffset;
+        private Pose _trackedGripPose;
+        private Pose _trackedPinchPose;
+        private Grab.HandGrabInteractableData _lastInteractableData = new Grab.HandGrabInteractableData();
 
         #region IHandGrabInteractor
-        public IMovement Movement { get; set; }
-        public bool MovementFinished { get; set; }
-
-        public HandGrabTarget HandGrabTarget { get; } = new HandGrabTarget();
-
-        public Transform WristPoint => _grabOrigin;
-        public Transform PinchPoint => _pinchPoint;
-        public Transform PalmPoint => _gripPoint;
-
         public HandGrabAPI HandGrabApi => _handGrabApi;
         public GrabTypeFlags SupportedGrabTypes => _supportedGrabTypes;
         public IHandGrabInteractable TargetInteractable => Interactable;
         #endregion
 
-        #region IHandGrabState
-        public virtual bool IsGrabbing => HasSelectedInteractable
-            && (Movement != null && Movement.Stopped);
-        public float FingersStrength { get; private set; }
-        public float WristStrength { get; private set; }
-        public Pose WristToGrabPoseOffset { get; private set; }
+        #region ISnapper
 
-        public HandFingerFlags GrabbingFingers()
+        public virtual bool IsSnapping => HasSelectedInteractable
+            && (_tween == null || _tween.Stopped);
+
+        public float SnapStrength { get; private set; }
+
+        public HandFingerFlags SnappingFingers()
         {
-            return this.GrabbingFingers(SelectedInteractable);
+            return HandGrab.GrabbingFingers(this, SelectedInteractable);
         }
+
+        public Pose WristToSnapOffset => _wristToSnapOffset;
+
+        public ISnapData SnapData { get; private set; }
+        public System.Action<ISnapper> WhenSnapStarted { get; set; } = delegate { };
+        public System.Action<ISnapper> WhenSnapEnded { get; set; } = delegate { };
         #endregion
 
         #region IRigidbodyRef
@@ -136,39 +107,26 @@ namespace Oculus.Interaction.HandGrab
             base.Awake();
             Hand = _hand as IHand;
             VelocityCalculator = _velocityCalculator as IVelocityCalculator;
-            _nativeId = 0x4847726162497472;
         }
 
         protected override void Start()
         {
-            this.BeginStart(ref _started, () => base.Start());
-            this.AssertField(Rigidbody, nameof(Rigidbody));
+            this.BeginStart(ref _started, base.Start);
+
+            Assert.IsNotNull(Rigidbody);
             Collider[] colliders = Rigidbody.GetComponentsInChildren<Collider>();
-
-            this.AssertCollectionField(colliders, nameof(colliders),
-                $"The associated {AssertUtils.Nicify(nameof(Rigidbody))} must have at least one Collider.");
-
+            Assert.IsTrue(colliders.Length > 0,
+                "The associated Rigidbody must have at least one Collider.");
             foreach (Collider collider in colliders)
             {
-                this.AssertIsTrue(collider.isTrigger,
-                    $"Associated Colliders in the {AssertUtils.Nicify(nameof(Rigidbody))} must be marked as Triggers.");
+                Assert.IsTrue(collider.isTrigger,
+                    "Associated Colliders must be marked as Triggers.");
             }
-            if (_pinchPoint != null)
-            {
-                this.AssertField(_pinchCollider, nameof(_pinchCollider),
-                    whyItFailed: "When using Pinch Point a Pinch Collider is required.");
-            }
-            if (_gripPoint != null)
-            {
-                this.AssertField(_gripCollider, nameof(_gripCollider),
-                    whyItFailed: "When using Grip Point a Grip Collider is required.");
-            }
-
-            this.AssertField(_handGrabApi, nameof(_handGrabApi));
-            this.AssertField(Hand, nameof(Hand));
+            Assert.IsNotNull(_handGrabApi);
+            Assert.IsNotNull(Hand);
             if (_velocityCalculator != null)
             {
-                this.AssertField(VelocityCalculator, nameof(VelocityCalculator));
+                Assert.IsNotNull(VelocityCalculator);
             }
 
             this.EndStart(ref _started);
@@ -177,40 +135,63 @@ namespace Oculus.Interaction.HandGrab
         #region life cycle
 
         /// <summary>
+        /// During the update event, move the current interactor (containing also the
+        /// trigger for detecting nearby interactableS) to the tracked position of the grip.
+        ///
+        /// That is the tracked wrist plus a pregenerated position and rotation offset.
+        /// </summary>
+        protected override void DoEveryUpdate()
+        {
+            base.DoEveryUpdate();
+
+            _gripPoint.GetWorldPose(ref _trackedGripPose);
+            _gripPoint.GetOffset(ref _wristToSnapOffset);
+
+            _trackedPinchPose = _pinchPoint.GetPose();
+
+            if (!SnapAddress.IsNullOrInvalid(_currentSnap)
+                && _currentSnap.SnappedToPinch)
+            {
+                if (State == InteractorState.Select)
+                {
+                    _wristToSnapOffset.Premultiply(_snapOffset);
+                }
+                else
+                {
+                    Pose gripToPinchOffset = PoseUtils.RelativeOffset(_trackedPinchPose, _trackedGripPose);
+                    _wristToSnapOffset.Premultiply(gripToPinchOffset);
+                }
+            }
+
+            this.transform.SetPose(_trackedGripPose);
+        }
+
+        /// <summary>
         /// Each call while the interactor is hovering, it checks whether there is an interaction
-        /// being hovered and sets the target snap pose to it. In the HandToObject snapping
+        /// being hovered and sets the target snapping address to it. In the HandToObject snapping
         /// behaviors this is relevant as the hand can approach the object progressively even before
         /// a true grab starts.
         /// </summary>
         protected override void DoHoverUpdate()
         {
             base.DoHoverUpdate();
-
-            _handGrabShouldSelect = false;
-
-            if (Interactable == null)
+            if (_currentSnap.IsValidAddress)
             {
-                return;
+                SnapStrength = HandGrab.ComputeHoverStrength(this, Interactable,
+                    out GrabTypeFlags hoverGrabTypes);
+                SnapData = _currentSnap;
+            }
+            else
+            {
+                SnapStrength = 0f;
+                SnapData = null;
             }
 
-            UpdateTarget(Interactable);
-            if (this.ComputeShouldSelect(Interactable, out _))
+            if (Interactable != null)
             {
-                _handGrabShouldSelect = true;
+                ShouldSelect = HandGrab.ComputeShouldSelect(this, Interactable,
+                    out GrabTypeFlags selectingGrabTypes);
             }
-        }
-
-
-        protected override void InteractableSet(HandGrabInteractable interactable)
-        {
-            base.InteractableSet(interactable);
-            UpdateTarget(Interactable);
-        }
-
-        protected override void InteractableUnset(HandGrabInteractable interactable)
-        {
-            base.InteractableUnset(interactable);
-            SetGrabStrength(0f);
         }
 
         /// <summary>
@@ -222,24 +203,29 @@ namespace Oculus.Interaction.HandGrab
         /// state once the grabbing gesture properly finishes.
         /// </summary>
         /// <param name="interactable">The selected item</param>
-        protected override void DoSelectUpdate()
+        protected override void DoSelectUpdate(HandGrabInteractable interactable)
         {
-            _handGrabShouldUnselect = false;
-            if (SelectedInteractable == null)
+            base.DoSelectUpdate(interactable);
+            if (interactable == null)
             {
-                _handGrabShouldUnselect = true;
-                return;
+                _currentSnap.Clear();
+            }
+            else
+            {
+                Pose grabbingPoint = PoseUtils.Multiply(_trackedGripPose, _snapOffset);
+                _tween.UpdateTarget(grabbingPoint);
+                _tween.Tick();
+                interactable.Grabbable.UpdateGrabPoint(Identifier, _tween.Pose);
             }
 
-            UpdateTargetSliding(SelectedInteractable);
-
-            Pose handGrabPose = this.GetHandGrabPose();
-            Movement.UpdateTarget(handGrabPose);
-            Movement.Tick();
-
-            if (this.ComputeShouldUnselect(SelectedInteractable))
+            if (interactable != null)
             {
-                _handGrabShouldUnselect = true;
+                HandGrab.StoreGrabData(this, interactable, ref _lastInteractableData);
+                ShouldUnselect = HandGrab.ComputeShouldUnselect(this, interactable);
+            }
+            else
+            {
+                ShouldUnselect = true;
             }
         }
 
@@ -252,17 +238,30 @@ namespace Oculus.Interaction.HandGrab
         /// Note: ideally this code would be in InteractableSelected but it needs
         /// to be called before the object is marked as active.
         /// </summary>
-        /// <param name="interactable">The selected interactable</param>
+        /// <param name="snap">The selected Snap Data </param>
         protected override void InteractableSelected(HandGrabInteractable interactable)
         {
-            if (interactable != null)
+            base.InteractableSelected(interactable);
+
+            if (SnapAddress.IsNullOrInvalid(_currentSnap))
             {
-                WristToGrabPoseOffset = this.GetGrabOffset();
-                this.Movement = this.GenerateMovement(interactable);
-                SetGrabStrength(1f);
+                return;
             }
 
-            base.InteractableSelected(interactable);
+            if (_currentSnap.SnappedToPinch)
+            {
+                _snapOffset = PoseUtils.RelativeOffset(_trackedPinchPose, _trackedGripPose);
+            }
+            else
+            {
+                _snapOffset = Pose.identity;
+            }
+
+            Pose fromPose = _currentSnap.WorldSnapPose;
+            Pose toPose = PoseUtils.Multiply(_trackedGripPose, _snapOffset);
+            _tween = interactable.GenerateObjectToHandTween(fromPose, toPose);
+            interactable.Grabbable.AddGrabPoint(Identifier, _tween.Pose);
+            interactable.Grabbable.WhenGrabbableUpdated += HandleGrabbableUpdated;
         }
 
         /// <summary>
@@ -273,7 +272,14 @@ namespace Oculus.Interaction.HandGrab
         protected override void InteractableUnselected(HandGrabInteractable interactable)
         {
             base.InteractableUnselected(interactable);
-            this.Movement = null;
+            if (interactable == null)
+            {
+                return;
+            }
+
+            interactable.Grabbable.WhenGrabbableUpdated -= HandleGrabbableUpdated;
+            interactable.Grabbable.RemoveGrabPoint(Identifier, _tween.Pose);
+            _tween = null;
 
             ReleaseVelocityInformation throwVelocity = VelocityCalculator != null ?
                 VelocityCalculator.CalculateThrowVelocity(interactable.transform) :
@@ -281,266 +287,138 @@ namespace Oculus.Interaction.HandGrab
             interactable.ApplyVelocities(throwVelocity.LinearVelocity, throwVelocity.AngularVelocity);
         }
 
-        protected override void HandlePointerEventRaised(PointerEvent evt)
+        protected override void InteractableSet(HandGrabInteractable interactable)
         {
-            base.HandlePointerEventRaised(evt);
+            base.InteractableSet(interactable);
+            WhenSnapStarted.Invoke(this);
+        }
 
-            if (SelectedInteractable == null
-                || !SelectedInteractable.ResetGrabOnGrabsUpdated)
+        protected override void InteractableUnset(HandGrabInteractable interactable)
+        {
+            base.InteractableUnset(interactable);
+            WhenSnapEnded.Invoke(this);
+        }
+
+        private void HandleGrabbableUpdated(GrabbableArgs args)
+        {
+            if (SelectedInteractable == null)
             {
                 return;
             }
 
-            if (evt.Identifier != Identifier &&
-                (evt.Type == PointerEventType.Select || evt.Type == PointerEventType.Unselect))
+            if (args.GrabbableEvent == GrabbableEvent.Update)
             {
-                WristToGrabPoseOffset = this.GetGrabOffset();
-                TrySetTarget(SelectedInteractable, this.CurrentGrabType());
-                this.Movement = this.GenerateMovement(SelectedInteractable);
-
-                Pose fromPose = this.GetTargetGrabPose();
-                PointerEvent pe = new PointerEvent(Identifier, PointerEventType.Move, fromPose, Data);
-                SelectedInteractable.PointableElement.ProcessPointerEvent(pe);
+                return;
             }
-        }
 
-        protected override Pose ComputePointerPose()
-        {
-            if (Movement != null)
+            Pose toPose = PoseUtils.Multiply(_trackedGripPose, _snapOffset);
+            if (SelectedInteractable.ResetGrabOnGrabsUpdated)
             {
-                return Movement.Pose;
+                if(SelectedInteractable.CalculateBestPose(toPose, Hand.Scale, Hand.Handedness,
+                    ref _cachedBestHandPose, ref _cachedBestSnapPoint,
+                    out bool usesHandPose, out float poseScore))
+                {
+                    bool usePinchPoint = _currentSnap.SnappedToPinch;
+                    HandPose handPose = usesHandPose ? _cachedBestHandPose : null;
+                    _currentSnap.Set(SelectedInteractable, handPose, _cachedBestSnapPoint, usePinchPoint);
+                }
             }
-            return this.GetHandGrabPose();
+
+            Pose fromPose = _currentSnap.WorldSnapPose;
+            _tween = SelectedInteractable.GenerateObjectToHandTween(fromPose, toPose);
+            SelectedInteractable.Grabbable.ResetGrabPoint(Identifier, fromPose);
         }
 
         #endregion
 
-        protected override bool ComputeShouldSelect()
+        #region grab detection
+
+        private bool CanSnapToPinchPoint(HandGrabInteractable interactable, GrabTypeFlags grabTypes)
         {
-            return _handGrabShouldSelect;
+            return _pinchPoint != null
+                && !interactable.UsesHandPose()
+                && (grabTypes & GrabTypeFlags.Pinch) != 0;
         }
 
-        protected override bool ComputeShouldUnselect()
-        {
-            return _handGrabShouldUnselect
-                || (_selectedInteractableOverride != null && _selectedInteractableOverride != SelectedInteractable);
-        }
-
-        public override bool CanSelect(HandGrabInteractable interactable)
-        {
-            if (!base.CanSelect(interactable))
-            {
-                return false;
-            }
-            return this.CanInteractWith(interactable);
-        }
+        #endregion
 
         /// <summary>
         /// Compute the best interactable to snap to. In order to do it the method measures
         /// the score from the current grip pose to the closes pose in the surfaces
         /// of each one of the interactables in the registry.
-        /// Even though it returns the best interactable, it also saves the entire Snap pose to
+        /// Even though it returns the best interactable, it also saves the entire SnapAddress to
         /// it in which the exact pose within the surface is already recorded to avoid recalculations
         /// within the same frame.
         /// </summary>
         /// <returns>The best interactable to snap the hand to.</returns>
         protected override HandGrabInteractable ComputeCandidate()
         {
-            var interactables = HandGrabInteractable.Registry.List(this);
-            float bestFingerScore = float.NegativeInfinity;
-            GrabPoseScore bestPoseScore = GrabPoseScore.Max;
-            HandGrabInteractable bestInteractable = null;
+            ComputeBestSnapAddress(ref _currentSnap);
+
+            if (_currentSnap.IsValidAddress)
+            {
+                return _currentSnap.Interactable;
+            }
+
+            return null;
+        }
+
+        protected virtual void ComputeBestSnapAddress(ref SnapAddress snapAddress)
+        {
+            IEnumerable<HandGrabInteractable> interactables = HandGrabInteractable.Registry.List(this);
+            float bestFingerScore = -1f;
+            float bestPoseScore = -1f;
 
             foreach (HandGrabInteractable interactable in interactables)
             {
-                GrabTypeFlags selectingGrabTypes = SelectingGrabTypes(interactable, bestFingerScore,
-                    out float fingerScore);
-
-                if (selectingGrabTypes == GrabTypeFlags.None)
+                float fingerScore = 1.0f;
+                if (!HandGrab.ComputeShouldSelect(this, interactable, out GrabTypeFlags selectingGrabTypes))
+                {
+                    fingerScore = HandGrab.ComputeHoverStrength(this, interactable, out selectingGrabTypes);
+                }
+                if (fingerScore < bestFingerScore)
                 {
                     continue;
                 }
 
-                GrabPoseScore poseScore = this.GetPoseScore(interactable, selectingGrabTypes, ref _cachedResult);
+                bool usePinchPoint = CanSnapToPinchPoint(interactable, selectingGrabTypes);
+                Pose grabPoint = usePinchPoint ? _trackedPinchPose : _trackedGripPose;
+                bool poseFound = interactable.CalculateBestPose(grabPoint, Hand.Scale, Hand.Handedness,
+                    ref _cachedBestHandPose, ref _cachedBestSnapPoint,
+                    out bool usesHandPose, out float poseScore);
+
+                if (!poseFound)
+                {
+                    continue;
+                }
+
                 if (fingerScore > bestFingerScore
-                    || poseScore.IsBetterThan(bestPoseScore))
+                    || poseScore > bestPoseScore)
                 {
                     bestFingerScore = fingerScore;
                     bestPoseScore = poseScore;
-                    bestInteractable = interactable;
+                    HandPose handPose = usesHandPose ? _cachedBestHandPose : null;
+                    snapAddress.Set(interactable, handPose, _cachedBestSnapPoint, usePinchPoint);
                 }
+
             }
 
-            return bestInteractable;
-        }
-
-        private GrabTypeFlags SelectingGrabTypes(HandGrabInteractable interactable,
-            float minFingerScoreRequired, out float fingerScore)
-        {
-            fingerScore = 1.0f;
-            GrabTypeFlags selectingGrabTypes;
-            if (State == InteractorState.Select
-                || !this.ComputeShouldSelect(interactable, out selectingGrabTypes))
+            if (bestFingerScore < 0)
             {
-                fingerScore = HandGrabInteraction.ComputeHandGrabScore(this, interactable, out selectingGrabTypes);
+                snapAddress.Clear();
             }
-            if (fingerScore < minFingerScoreRequired)
-            {
-                return GrabTypeFlags.None;
-            }
-
-            if (selectingGrabTypes == GrabTypeFlags.None)
-            {
-                if (_hoverOnZeroStrength)
-                {
-                    selectingGrabTypes = interactable.SupportedGrabTypes & this.SupportedGrabTypes;
-                }
-                else
-                {
-                    return GrabTypeFlags.None;
-                }
-            }
-
-            if (_gripCollider != null
-                && (selectingGrabTypes & GrabTypeFlags.Palm) != 0
-                && !OverlapsSphere(interactable, _gripCollider))
-            {
-                selectingGrabTypes &= ~GrabTypeFlags.Palm;
-            }
-
-            if (_pinchCollider != null
-                && (selectingGrabTypes & GrabTypeFlags.Pinch) != 0
-                && !OverlapsSphere(interactable, _pinchCollider))
-            {
-                selectingGrabTypes &= ~GrabTypeFlags.Pinch;
-            }
-
-            return selectingGrabTypes;
-        }
-
-        /// <summary>
-        /// Enforces selection on the passed interactable. Grabbing it in the next interaction iteration.
-        /// </summary>
-        /// <param name="interactable">The interactable to grab</param>
-        /// <param name="allowManualRelease">If false, the interactable can only be released by calling ForceRelease</param>
-        public void ForceSelect(HandGrabInteractable interactable, bool allowManualRelease = false)
-        {
-            _selectedInteractableOverride = interactable;
-            SetComputeCandidateOverride(() => interactable);
-            SetComputeShouldSelectOverride(() => ReferenceEquals(interactable, Interactable));
-            if (!allowManualRelease)
-            {
-                SetComputeShouldUnselectOverride(() => !ReferenceEquals(interactable, SelectedInteractable), false);
-            }
-        }
-        /// <summary>
-        /// Enforces deselection in the currently grabbed interactable (if any)
-        /// </summary>
-        public void ForceRelease()
-        {
-            _selectedInteractableOverride = null;
-            ClearComputeCandidateOverride();
-            ClearComputeShouldSelectOverride();
-
-            if (State == InteractorState.Select)
-            {
-                SetComputeShouldUnselectOverride(() => true);
-            }
-            else
-            {
-                ClearComputeShouldUnselectOverride();
-            }
-        }
-
-        public override void SetComputeCandidateOverride(Func<HandGrabInteractable> computeCandidate, bool shouldClearOverrideOnSelect = true)
-        {
-            base.SetComputeCandidateOverride(() =>
-            {
-                HandGrabInteractable interactable = computeCandidate.Invoke();
-                return interactable;
-            },
-            shouldClearOverrideOnSelect);
-        }
-
-        public override void Unselect()
-        {
-            if (State == InteractorState.Select
-                && _selectedInteractableOverride != null
-                && (SelectedInteractable == _selectedInteractableOverride
-                    || SelectedInteractable == null))
-            {
-                _selectedInteractableOverride = null;
-                ClearComputeShouldUnselectOverride();
-            }
-            base.Unselect();
-        }
-
-        private bool OverlapsSphere(HandGrabInteractable interactable, SphereCollider sphere)
-        {
-            Vector3 point = sphere.transform.position;
-            float radius = sphere.bounds.extents.x;
-
-            foreach (Collider collider in interactable.Colliders)
-            {
-                if (collider.enabled &&
-                    Collisions.IsSphereWithinCollider(point, radius, collider))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private void UpdateTarget(HandGrabInteractable interactable)
-        {
-            WristToGrabPoseOffset = this.GetGrabOffset();
-            GrabTypeFlags selectingGrabTypes = SelectingGrabTypes(interactable, float.NegativeInfinity, out float grabStrength);
-            TrySetTarget(interactable, selectingGrabTypes);
-            SetGrabStrength(grabStrength);
-        }
-
-        private void UpdateTargetSliding(HandGrabInteractable interactable)
-        {
-            if (interactable.Slippiness <= 0f)
-            {
-                return;
-            }
-            float grabStrength = HandGrabInteraction.ComputeHandGrabScore(this, interactable,
-                out GrabTypeFlags selectingGrabTypes, true);
-            if (grabStrength <= interactable.Slippiness)
-            {
-                TrySetTarget(interactable, selectingGrabTypes);
-            }
-        }
-
-        private bool TrySetTarget(IHandGrabInteractable interactable, GrabTypeFlags selectingGrabTypes)
-        {
-            if (this.TryCalculateBestGrab(interactable, selectingGrabTypes, out HandGrabTarget.GrabAnchor anchorMode, ref _cachedResult))
-            {
-                HandGrabTarget.Set(interactable.RelativeTo, interactable.HandAlignment, anchorMode, _cachedResult);
-                return true;
-            }
-            return false;
-        }
-
-        private void SetGrabStrength(float strength)
-        {
-            FingersStrength = strength;
-            WristStrength = strength;
         }
 
         #region Inject
 
         public void InjectAllHandGrabInteractor(HandGrabAPI handGrabApi,
-            Transform grabOrigin,
-            IHand hand, Rigidbody rigidbody, GrabTypeFlags supportedGrabTypes)
+            IHand hand, Rigidbody rigidbody, GrabTypeFlags supportedGrabTypes, HandWristOffset gripPoint)
         {
             InjectHandGrabApi(handGrabApi);
-            InjectGrabOrigin(grabOrigin);
             InjectHand(hand);
             InjectRigidbody(rigidbody);
             InjectSupportedGrabTypes(supportedGrabTypes);
+            InjectGripPoint(gripPoint);
         }
 
         public void InjectHandGrabApi(HandGrabAPI handGrabAPI)
@@ -550,7 +428,7 @@ namespace Oculus.Interaction.HandGrab
 
         public void InjectHand(IHand hand)
         {
-            _hand = hand as UnityEngine.Object;
+            _hand = hand as MonoBehaviour;
             Hand = hand;
         }
 
@@ -564,19 +442,9 @@ namespace Oculus.Interaction.HandGrab
             _supportedGrabTypes = supportedGrabTypes;
         }
 
-        public void InjectGrabOrigin(Transform grabOrigin)
-        {
-            _grabOrigin = grabOrigin;
-        }
-
-        public void InjectOptionalGripPoint(Transform gripPoint)
+        public void InjectGripPoint(HandWristOffset gripPoint)
         {
             _gripPoint = gripPoint;
-        }
-
-        public void InjectOptionalGripCollider(SphereCollider gripCollider)
-        {
-            _gripCollider = gripCollider;
         }
 
         public void InjectOptionalPinchPoint(Transform pinchPoint)
@@ -584,14 +452,9 @@ namespace Oculus.Interaction.HandGrab
             _pinchPoint = pinchPoint;
         }
 
-        public void InjectOptionalPinchCollider(SphereCollider pinchCollider)
-        {
-            _pinchCollider = pinchCollider;
-        }
-
         public void InjectOptionalVelocityCalculator(IVelocityCalculator velocityCalculator)
         {
-            _velocityCalculator = velocityCalculator as UnityEngine.Object;
+            _velocityCalculator = velocityCalculator as MonoBehaviour;
             VelocityCalculator = velocityCalculator;
         }
 

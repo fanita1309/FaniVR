@@ -1,18 +1,17 @@
 ﻿/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the license found in the
  * LICENSE file in the root directory of this source tree.
  */
 
 using UnityEditor;
+using UnityEngine;
 using System.Reflection;
-using Meta.WitAi.Data.Info;
+using Facebook.WitAi.Data.Traits;
 
-namespace Meta.WitAi.Windows
+namespace Facebook.WitAi.Windows
 {
-    [CustomPropertyDrawer(typeof(WitTraitInfo))]
     public class WitTraitPropertyDrawer : WitPropertyDrawer
     {
         // Use name value for title if possible
@@ -29,11 +28,11 @@ namespace Meta.WitAi.Windows
                     }
                     break;
                 case "id":
-                    return WitTexts.Texts.ConfigurationTraitsIdLabel;
+                    return WitStyles.Texts.ConfigurationTraitsIdLabel;
                 case "values":
-                    return WitTexts.Texts.ConfigurationTraitsValuesLabel;
+                    return WitStyles.Texts.ConfigurationTraitsValuesLabel;
             }
-
+            
             // Default to base
             return base.GetLocalizedText(property, key);
         }

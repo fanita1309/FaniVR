@@ -1,27 +1,18 @@
-/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
- *
- * Licensed under the Oculus SDK License Agreement (the "License");
- * you may not use the Oculus SDK except in compliance with the License,
- * which is provided at the time of installation or download, or which
- * otherwise accompanies this software in either electronic or hard copy form.
- *
- * You may obtain a copy of the License at
- *
- * https://developer.oculus.com/licenses/oculussdk/
- *
- * Unless required by applicable law or agreed to in writing, the Oculus SDK
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+/************************************************************************************
+Copyright : Copyright (c) Facebook Technologies, LLC and its affiliates. All rights reserved.
+
+Your use of this SDK or tool is subject to the Oculus SDK License Agreement, available at
+https://developer.oculus.com/licenses/oculussdk/
+
+Unless required by applicable law or agreed to in writing, the Utilities SDK distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+ANY KIND, either express or implied. See the License for the specific language governing
+permissions and limitations under the License.
+************************************************************************************/
 
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Assertions;
 
 namespace Oculus.Interaction
 {
@@ -34,8 +25,8 @@ namespace Oculus.Interaction
     /// </summary>
     public class InteractableTriggerBroadcaster : MonoBehaviour
     {
-        public Action<IInteractable, Rigidbody> WhenTriggerEntered = delegate { };
-        public Action<IInteractable, Rigidbody> WhenTriggerExited = delegate { };
+        public Action<IInteractable, Rigidbody> OnTriggerEntered = delegate { };
+        public Action<IInteractable, Rigidbody> OnTriggerExited = delegate { };
 
         private IInteractable _interactable;
         private Dictionary<Rigidbody, bool> _rigidbodyTriggers;
@@ -45,16 +36,12 @@ namespace Oculus.Interaction
             new HashSet<InteractableTriggerBroadcaster>();
 
         protected bool _started = false;
-        private bool _skippedPhysics;
-        private bool _forcedGlobalPhysicsUpdate;
 
         protected virtual void Start()
         {
             this.BeginStart(ref _started);
             _rigidbodyTriggers = new Dictionary<Rigidbody, bool>();
             _rigidbodies = new List<Rigidbody>();
-            _skippedPhysics = false;
-            _forcedGlobalPhysicsUpdate = false;
             this.EndStart(ref _started);
         }
 
@@ -73,7 +60,7 @@ namespace Oculus.Interaction
 
             if (!_rigidbodyTriggers.ContainsKey(rigidbody))
             {
-                WhenTriggerEntered(_interactable, rigidbody);
+                OnTriggerEntered(_interactable, rigidbody);
                 _rigidbodyTriggers.Add(rigidbody, true);
             }
             else
@@ -92,14 +79,11 @@ namespace Oculus.Interaction
 
         protected virtual void FixedUpdate()
         {
-            if (Physics.autoSimulation)
+            if (!Physics.autoSimulation)
             {
-                UpdateTriggers();
+                return;
             }
-            else
-            {
-                _skippedPhysics = true;
-            }
+            UpdateTriggers();
         }
 
         private void UpdateTriggers()
@@ -111,7 +95,7 @@ namespace Oculus.Interaction
                 if (_rigidbodyTriggers[rigidbody] == false)
                 {
                     _rigidbodyTriggers.Remove(rigidbody);
-                    WhenTriggerExited(_interactable, rigidbody);
+                    OnTriggerExited(_interactable, rigidbody);
                 }
                 else
                 {
@@ -127,22 +111,10 @@ namespace Oculus.Interaction
                 // Clean up any remaining active triggers
                 foreach (Rigidbody rigidbody in _rigidbodyTriggers.Keys)
                 {
-                    WhenTriggerExited(_interactable, rigidbody);
+                    OnTriggerExited(_interactable, rigidbody);
                 }
                 _broadcasters.Remove(this);
                 _rigidbodies.Clear();
-                Assert.IsTrue(!_skippedPhysics || _forcedGlobalPhysicsUpdate,
-                    $"If Physics.autoSimulation is false, {nameof(InteractableTriggerBroadcaster)}." +
-                    $"{nameof(ForceGlobalUpdateTriggers)} must be called manually.");
-            }
-        }
-
-        protected virtual void OnDestroy()
-        {
-            if (_started)
-            {
-                WhenTriggerEntered = null;
-                WhenTriggerExited = null;
             }
         }
 
@@ -150,7 +122,6 @@ namespace Oculus.Interaction
         {
             foreach (InteractableTriggerBroadcaster broadcaster in _broadcasters)
             {
-                broadcaster._forcedGlobalPhysicsUpdate = true;
                 broadcaster.UpdateTriggers();
             }
         }

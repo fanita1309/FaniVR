@@ -1,15 +1,16 @@
 ﻿/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the license found in the
  * LICENSE file in the root directory of this source tree.
  */
 
+using System;
+using System.Reflection;
 using UnityEngine;
 using UnityEditor;
 
-namespace Meta.WitAi.Windows
+namespace Facebook.WitAi.Windows
 {
     // Handles layout of very simple property drawer
     public abstract class WitSimplePropertyDrawer : PropertyDrawer
@@ -45,17 +46,14 @@ namespace Meta.WitAi.Windows
         protected virtual string GetFieldStringValue(SerializedProperty subfieldProperty)
         {
             // Supported types
-            if (subfieldProperty != null)
+            switch (subfieldProperty.type)
             {
-                switch (subfieldProperty.type)
-                {
-                    case "string":
-                        return subfieldProperty.stringValue;
-                    case "int":
-                        return subfieldProperty.intValue.ToString();
-                    case "bool":
-                        return subfieldProperty.boolValue.ToString();
-                }
+                case "string":
+                    return subfieldProperty.stringValue;
+                case "int":
+                    return subfieldProperty.intValue.ToString();
+                case "bool":
+                    return subfieldProperty.boolValue.ToString();
             }
             // No others are currently supported
             return string.Empty;

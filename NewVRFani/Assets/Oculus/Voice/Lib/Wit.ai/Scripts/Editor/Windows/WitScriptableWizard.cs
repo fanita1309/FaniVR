@@ -1,31 +1,30 @@
 ﻿/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the license found in the
  * LICENSE file in the root directory of this source tree.
  */
 
+using System;
 using UnityEditor;
 using UnityEngine;
 
-namespace Meta.WitAi.Windows
+namespace Facebook.WitAi.Windows
 {
     public abstract class WitScriptableWizard : ScriptableWizard
     {
         protected Vector2 scrollOffset;
 
-        protected virtual Texture2D HeaderIcon => WitTexts.HeaderIcon;
-        protected virtual string HeaderUrl => WitTexts.WitUrl;
-        protected virtual string DocsUrl => WitTexts.Texts.WitDocsUrl;
-
+        protected virtual Texture2D HeaderIcon => WitStyles.HeaderIcon;
+        protected virtual string HeaderUrl => WitStyles.WitUrl;
+        
         protected abstract GUIContent Title { get; }
         protected abstract string ButtonLabel { get; }
-        protected virtual string ContentHeaderLabel => Title.text;
         protected abstract string ContentSubheaderLabel { get; }
 
         protected virtual void OnEnable()
         {
+            WitAuthUtility.InitEditorTokens();
             createButtonName = ButtonLabel;
         }
         protected override bool DrawWizardGUI()
@@ -35,19 +34,19 @@ namespace Meta.WitAi.Windows
             {
                 titleContent = Title;
             }
-
+            
             // Layout window
             Vector2 size = Vector2.zero;
-            WitEditorUI.LayoutWindow(ContentHeaderLabel, HeaderIcon, HeaderUrl, DocsUrl, LayoutContent, ref scrollOffset, out size);
-
+            WitEditorUI.LayoutWindow(titleContent.text, HeaderIcon, HeaderUrl, LayoutContent, ref scrollOffset, out size);
+            
             // Set wizard to max width
             size.x = WitStyles.WindowMaxWidth;
             // Wizards add additional padding
-            size.y += 120f;
-
+            size.y += 70f;
+            
             // Clamp wizard sizes
             maxSize = minSize = size;
-
+            
             // True if valid server token
             return false;
         }
@@ -58,18 +57,12 @@ namespace Meta.WitAi.Windows
                 WitEditorUI.LayoutSubheaderLabel(ContentSubheaderLabel);
                 GUILayout.Space(WitStyles.HeaderPaddingBottom * 2f);
             }
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(WitStyles.WizardFieldPadding);
-            GUILayout.BeginVertical();
             LayoutFields();
-            GUILayout.EndVertical();
-            GUILayout.Space(WitStyles.WizardFieldPadding);
-            GUILayout.EndHorizontal();
         }
         protected abstract void LayoutFields();
         protected virtual void OnWizardCreate()
         {
-
+            
         }
     }
 }

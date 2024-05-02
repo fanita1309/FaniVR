@@ -1,19 +1,17 @@
 ﻿/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the license found in the
  * LICENSE file in the root directory of this source tree.
  */
 
 using UnityEditor;
+using UnityEngine;
 using System.Reflection;
-using Meta.WitAi.Data.Configuration;
-using Meta.WitAi.Data.Info;
+using Facebook.WitAi.Data.Entities;
 
-namespace Meta.WitAi.Windows
+namespace Facebook.WitAi.Windows
 {
-    [CustomPropertyDrawer(typeof(WitEntityInfo))]
     public class WitEntityPropertyDrawer : WitPropertyDrawer
     {
         // Use name value for title if possible
@@ -30,15 +28,13 @@ namespace Meta.WitAi.Windows
                         }
                         break;
                     case "id":
-                        return WitTexts.Texts.ConfigurationEntitiesIdLabel;
+                        return WitStyles.Texts.ConfigurationEntitiesIdLabel;
                     case "lookups":
-                        return WitTexts.Texts.ConfigurationEntitiesLookupsLabel;
+                        return WitStyles.Texts.ConfigurationEntitiesLookupsLabel;
                     case "roles":
-                        return WitTexts.Texts.ConfigurationEntitiesRolesLabel;
-                    case "keywords":
-                        return WitTexts.Texts.ConfigurationEntitiesKeywordsLabel;
+                        return WitStyles.Texts.ConfigurationEntitiesRolesLabel;
             }
-
+            
             // Default to base
             return base.GetLocalizedText(property, key);
         }
@@ -48,40 +44,10 @@ namespace Meta.WitAi.Windows
             switch (subfield.Name)
             {
                 case "name":
+                case "keywords":
                     return false;
             }
             return base.ShouldLayoutField(property, subfield);
-        }
-
-        protected override void OnDrawLabelInline(SerializedProperty property)
-        {
-            var configuration = property.serializedObject.targetObject as WitConfiguration;
-            if (configuration == null || !configuration.useConduit)
-            {
-                return;
-            }
-
-            var assemblyWalker = ConduitManifestGenerationManager.GetInstance(configuration).AssemblyWalker;
-            if (assemblyWalker == null)
-            {
-                return;
-            }
-
-            var entityName = property.displayName;
-
-            if (WitEditorUI.LayoutIconButton(EditorGUIUtility.IconContent("UxmlScript Icon")))
-            {
-                var manifest = ManifestLoader.LoadManifest(configuration.ManifestLocalPath);
-                var sourceCodeFile = CodeMapper.GetSourceFilePathFromTypeName(entityName, manifest, assemblyWalker);
-
-                if (string.IsNullOrEmpty(sourceCodeFile))
-                {
-                    VLog.W($"Failed to local source code for {entityName}");
-                    return;
-                }
-
-                UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(sourceCodeFile, 1);
-            }
         }
     }
 }

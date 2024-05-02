@@ -88,7 +88,6 @@ public class BrushController : MonoBehaviour
             {
                 backgroundSphere.enabled = false;
             }
-
             yield return null;
         }
     }

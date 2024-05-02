@@ -1,24 +1,15 @@
-/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
- *
- * Licensed under the Oculus SDK License Agreement (the "License");
- * you may not use the Oculus SDK except in compliance with the License,
- * which is provided at the time of installation or download, or which
- * otherwise accompanies this software in either electronic or hard copy form.
- *
- * You may obtain a copy of the License at
- *
- * https://developer.oculus.com/licenses/oculussdk/
- *
- * Unless required by applicable law or agreed to in writing, the Oculus SDK
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+/************************************************************************************
+Copyright : Copyright (c) Facebook Technologies, LLC and its affiliates. All rights reserved.
 
-using Oculus.Interaction.Input;
+Your use of this SDK or tool is subject to the Oculus SDK License Agreement, available at
+https://developer.oculus.com/licenses/oculussdk/
+
+Unless required by applicable law or agreed to in writing, the Utilities SDK distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+ANY KIND, either express or implied. See the License for the specific language governing
+permissions and limitations under the License.
+************************************************************************************/
+
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -63,7 +54,7 @@ namespace Oculus.Interaction.Throw
         }
 
         [SerializeField, Interface(typeof(IPoseInputDevice))]
-        private UnityEngine.Object _throwInputDevice;
+        private MonoBehaviour _throwInputDevice;
         public IPoseInputDevice ThrowInputDevice { get; private set; }
 
         [SerializeField]
@@ -99,16 +90,14 @@ namespace Oculus.Interaction.Throw
             "then a last resort method is used.")]
         private float _maxPercentZeroSamplesTrendVeloc = 0.5f;
 
-        [Header("Sampling filtering.")]
-        [SerializeField]
-        private OneEuroFilterPropertyBlock _filterProps = OneEuroFilterPropertyBlock.Default;
+        [SerializeField, Tooltip("Lower this number in case linear release velocity feels " +
+            "too fast. It scales each linear velocity sample buffered.")]
+        private float _linearVelocityScaleModifier = 0.8f;
 
         public float UpdateFrequency => _updateFrequency;
         private float _updateFrequency = -1.0f;
         private float _updateLatency = -1.0f;
         private float _lastUpdateTime = -1.0f;
-
-        private IOneEuroFilter<Vector3> _linearVelocityFilter;
 
         public Vector3 ReferenceOffset
         {
@@ -122,8 +111,7 @@ namespace Oculus.Interaction.Throw
             }
         }
 
-        public float InstantVelocityInfluence
-        {
+        public float InstantVelocityInfluence {
             get
             {
                 return _instantVelocityInfluence;
@@ -194,6 +182,18 @@ namespace Oculus.Interaction.Throw
             }
         }
 
+        public float LinearVelocityScaleModifier
+        {
+            get
+            {
+                return _linearVelocityScaleModifier;
+            }
+            set
+            {
+                _linearVelocityScaleModifier = value;
+            }
+        }
+
         public Vector3 AddedInstantLinearVelocity { get; private set; }
         public Vector3 AddedTrendLinearVelocity { get; private set; }
         public Vector3 AddedTangentialLinearVelocity { get; private set; }
@@ -226,29 +226,23 @@ namespace Oculus.Interaction.Throw
         private List<SamplePoseData> _windowWithMovement = new List<SamplePoseData>();
         private List<SamplePoseData> _tempWindow = new List<SamplePoseData>();
 
-        private Func<float> _timeProvider;
-
         private const float _TREND_DOT_THRESHOLD = 0.6f;
 
         protected virtual void Awake()
         {
             ThrowInputDevice = _throwInputDevice as IPoseInputDevice;
-            _timeProvider = () => Time.time;
         }
 
         protected virtual void Start()
         {
-            this.AssertField(_bufferingParams, nameof(_bufferingParams));
+            Assert.IsNotNull(_bufferingParams);
             _bufferingParams.Validate();
 
             _bufferSize = Mathf.CeilToInt(_bufferingParams.BufferLengthSeconds
                 * _bufferingParams.SampleFrequency);
             _bufferedPoses.Capacity = _bufferSize;
 
-            _linearVelocityFilter = OneEuroFilter.CreateVector3();
-
-            this.AssertField(ThrowInputDevice, nameof(ThrowInputDevice));
-            this.AssertField(_timeProvider, nameof(_timeProvider));
+            Assert.IsNotNull(ThrowInputDevice);
         }
 
         public ReleaseVelocityInformation CalculateThrowVelocity(Transform objectThrown)
@@ -256,7 +250,7 @@ namespace Oculus.Interaction.Throw
             Vector3 linearVelocity = Vector3.zero,
                 angularVelocity = Vector3.zero;
 
-            IncludeInstantVelocities(_timeProvider(), ref linearVelocity, ref angularVelocity);
+            IncludeInstantVelocities(ref linearVelocity, ref angularVelocity);
 
             IncludeTrendVelocities(ref linearVelocity, ref angularVelocity);
 
@@ -291,18 +285,15 @@ namespace Oculus.Interaction.Throw
 
             _bufferedPoses.Clear();
             _lastWritePos = -1;
-
-            _linearVelocityFilter.Reset();
-
             return newVelocity;
         }
 
-        private void IncludeInstantVelocities(float currentTime, ref Vector3 linearVelocity,
+        private void IncludeInstantVelocities(ref Vector3 linearVelocity,
             ref Vector3 angularVelocity)
         {
             Vector3 instantLinearVelocity = Vector3.zero,
                 instantAngularVelocity = Vector3.zero;
-            IncludeEstimatedReleaseVelocities(currentTime, ref instantLinearVelocity,
+            IncludeEstimatedReleaseVelocities(ref instantLinearVelocity,
                 ref instantAngularVelocity);
 
             AddedInstantLinearVelocity = instantLinearVelocity * _instantVelocityInfluence;
@@ -310,7 +301,7 @@ namespace Oculus.Interaction.Throw
             angularVelocity += instantAngularVelocity * _instantVelocityInfluence;
         }
 
-        private void IncludeEstimatedReleaseVelocities(float currentTime, ref Vector3 linearVelocity,
+        private void IncludeEstimatedReleaseVelocities(ref Vector3 linearVelocity,
             ref Vector3 angularVelocity)
         {
             linearVelocity = _linearVelocity;
@@ -322,7 +313,7 @@ namespace Oculus.Interaction.Throw
             }
 
             int beforeIndex, afterIndex;
-            float lookupTime = currentTime - _stepBackTime;
+            float lookupTime = Time.time - _stepBackTime;
             (beforeIndex, afterIndex) = FindPoseIndicesAdjacentToTime(lookupTime);
 
             if (beforeIndex < 0 || afterIndex < 0)
@@ -620,9 +611,8 @@ namespace Oculus.Interaction.Throw
 
         protected virtual void LateUpdate()
         {
-            float currentTime = _timeProvider();
             if (_updateLatency > 0.0f && _lastUpdateTime > 0.0f &&
-                   (currentTime - _lastUpdateTime) < _updateLatency)
+                   (Time.time - _lastUpdateTime) < _updateLatency)
             {
                 return;
             }
@@ -634,15 +624,14 @@ namespace Oculus.Interaction.Throw
                 return;
             }
 
-            float deltaTime = currentTime - _lastUpdateTime;
-            _lastUpdateTime = currentTime;
+            _lastUpdateTime = Time.time;
             referencePose = new Pose(
                 _referenceOffset + referencePose.position,
                 referencePose.rotation);
-            CalculateLatestVelocitiesAndUpdateBuffer(deltaTime, currentTime, referencePose);
+            CalculateLatestVelocitiesAndUpdateBuffer(Time.deltaTime, referencePose);
         }
 
-        private void CalculateLatestVelocitiesAndUpdateBuffer(float delta, float currentTime, Pose referencePose)
+        private void CalculateLatestVelocitiesAndUpdateBuffer(float delta, Pose referencePose)
         {
             _accumulatedDelta += delta;
 
@@ -652,7 +641,7 @@ namespace Oculus.Interaction.Throw
                 0 :
                 (_lastWritePos + 1) % _bufferSize;
             var newPose = new SamplePoseData(referencePose, _linearVelocity,
-                _angularVelocity, currentTime);
+                _angularVelocity, Time.time);
             if (_bufferedPoses.Count <= nextWritePos)
             {
                 _bufferedPoses.Add(newPose);
@@ -668,11 +657,10 @@ namespace Oculus.Interaction.Throw
         {
             (_linearVelocity, _angularVelocity) = GetLatestLinearAndAngularVelocities(
                 referencePose, delta);
-             _linearVelocity = _linearVelocityFilter.Step(_linearVelocity);
+            _linearVelocity *= _linearVelocityScaleModifier;
 
-            var newReleaseVelocInfo = new ReleaseVelocityInformation(_linearVelocity, _angularVelocity,
-                referencePose.position);
-            WhenNewSampleAvailable(newReleaseVelocInfo);
+            WhenNewSampleAvailable(new ReleaseVelocityInformation(_linearVelocity, _angularVelocity,
+                referencePose.position));
 
             _previousReferencePosition = referencePose.position;
             _previousReferenceRotation = referencePose.rotation;
@@ -686,6 +674,7 @@ namespace Oculus.Interaction.Throw
             {
                 return (Vector3.zero, Vector3.zero);
             }
+
             Vector3 newLinearVelocity = (referencePose.position -
                 _previousReferencePosition.Value) / delta;
             var newAngularVelocity = VelocityCalculatorUtilMethods.ToAngularVelocity(
@@ -707,18 +696,13 @@ namespace Oculus.Interaction.Throw
 
         public void InjectPoseInputDevice(IPoseInputDevice poseInputDevice)
         {
-            _throwInputDevice = poseInputDevice as UnityEngine.Object;
+            _throwInputDevice = poseInputDevice as MonoBehaviour;
             ThrowInputDevice = poseInputDevice;
         }
 
         public void InjectBufferingParams(BufferingParams bufferingParams)
         {
             _bufferingParams = bufferingParams;
-        }
-
-        public void InjectOptionalTimeProvider(Func<float> timeProvider)
-        {
-            _timeProvider = timeProvider;
         }
 
         #endregion

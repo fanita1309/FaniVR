@@ -1,26 +1,19 @@
 ﻿/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the license found in the
  * LICENSE file in the root directory of this source tree.
  */
 
-using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
+using Facebook.WitAi.Data.Intents;
 using System.Reflection;
-using Meta.WitAi.Data.Configuration;
-using Meta.WitAi.Data.Info;
 
-namespace Meta.WitAi.Windows
+namespace Facebook.WitAi.Windows
 {
-    [CustomPropertyDrawer(typeof(WitIntentInfo))]
     public class WitIntentPropertyDrawer : WitPropertyDrawer
     {
-        // Maps the expansion status of references foldouts
-        private readonly Dictionary<string, bool> _referencesExpanded = new Dictionary<string, bool>();
-
         // Use name value for title if possible
         protected override string GetLocalizedText(SerializedProperty property, string key)
         {
@@ -35,15 +28,14 @@ namespace Meta.WitAi.Windows
                     }
                     break;
                 case "id":
-                    return WitTexts.Texts.ConfigurationIntentsIdLabel;
+                    return WitStyles.Texts.ConfigurationIntentsIdLabel;
                 case "entities":
-                    return WitTexts.Texts.ConfigurationIntentsEntitiesLabel;
+                    return WitStyles.Texts.ConfigurationIntentsEntitiesLabel;
             }
-
+            
             // Default to base
             return base.GetLocalizedText(property, key);
         }
-
         // Layout entity override
         protected override void LayoutPropertyField(FieldInfo subfield, SerializedProperty subfieldProperty, GUIContent labelContent, bool canEdit)
         {
@@ -53,83 +45,28 @@ namespace Meta.WitAi.Windows
                 base.LayoutPropertyField(subfield, subfieldProperty, labelContent, canEdit);
                 return;
             }
-
+            
             // Entity foldout
             subfieldProperty.isExpanded = WitEditorUI.LayoutFoldout(labelContent, subfieldProperty.isExpanded);
-            if (!subfieldProperty.isExpanded)
+            if (subfieldProperty.isExpanded)
             {
-                return;
-            }
-
-            EditorGUI.indentLevel++;
-            if (subfieldProperty.arraySize == 0)
-            {
-                WitEditorUI.LayoutErrorLabel(WitTexts.Texts.ConfigurationEntitiesMissingLabel);
-            }
-            else
-            {
-                for (int i = 0; i < subfieldProperty.arraySize; i++)
+                EditorGUI.indentLevel++;
+                if (subfieldProperty.arraySize == 0)
                 {
-                    SerializedProperty entityProp = subfieldProperty.GetArrayElementAtIndex(i);
-                    string entityPropName = entityProp.FindPropertyRelative("name").stringValue;
-                    WitEditorUI.LayoutLabel(entityPropName);
+                    WitEditorUI.LayoutErrorLabel(WitStyles.Texts.ConfigurationEntitiesMissingLabel);
                 }
-            }
-            EditorGUI.indentLevel--;
-        }
-
-        protected override void OnGUIPostFields(Rect position, SerializedProperty property, GUIContent label)
-        {
-            var configuration = property.serializedObject.targetObject as WitConfiguration;
-            if (configuration == null || !configuration.useConduit)
-            {
-                return;
-            }
-
-            var assemblyWalker = ConduitManifestGenerationManager.GetInstance(configuration).AssemblyWalker;
-            if (assemblyWalker == null)
-            {
-                return;
-            }
-
-            var manifest = ManifestLoader.LoadManifest(configuration.ManifestLocalPath);
-
-            var intentName = property.FindPropertyRelative("name")?.stringValue;
-
-            if (!manifest.ContainsAction(intentName))
-            {
-                return;
-            }
-
-            var contexts = manifest.GetInvocationContexts(intentName);
-
-            if (!_referencesExpanded.ContainsKey(intentName))
-            {
-                _referencesExpanded[intentName] = false;
-            }
-            _referencesExpanded[intentName] = WitEditorUI.LayoutFoldout(new GUIContent("References"), _referencesExpanded[intentName]);
-            if (!_referencesExpanded[intentName])
-            {
-                return;
-            }
-
-            EditorGUI.indentLevel++;
-            foreach (var context in contexts)
-            {
-                GUILayout.BeginHorizontal();
+                else
                 {
-                    GUILayout.Space(EditorGUI.indentLevel * WitStyles.IndentationSpaces);
-                    if (WitEditorUI.LayoutTextLink($"{context.Type.Name}::{context.MethodInfo.Name}()"))
+                    for (int i = 0; i < subfieldProperty.arraySize; i++)
                     {
-                        assemblyWalker.GetSourceCode(context.Type, out var sourceCodeFile, out _);
-                        UnityEditorInternal.InternalEditorUtility.OpenFileAtLineExternal(sourceCodeFile, 1);
+                        SerializedProperty entityProp = subfieldProperty.GetArrayElementAtIndex(i);
+                        string entityPropName = entityProp.FindPropertyRelative("name").stringValue;
+                        WitEditorUI.LayoutLabel(entityPropName);
                     }
                 }
-                GUILayout.EndHorizontal();
+                EditorGUI.indentLevel--;
             }
-            EditorGUI.indentLevel--;
         }
-
         // Determine if should layout field
         protected override bool ShouldLayoutField(SerializedProperty property, FieldInfo subfield)
         {
